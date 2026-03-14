@@ -68,8 +68,7 @@ export class RevenueEngine {
         return baseRevenue * multiplier;
     }
 
-    //Come back here If you have time, this is the most important method in the class and it will be used in the scheduler to calculate the revenue of a placement
-    //I think it might be failing cme back to it
+    //I think this method might be failing cme back to it
     calculatePlacementRevenue(
         ad: Ad,
         areas: Area[],
