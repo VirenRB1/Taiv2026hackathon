@@ -1,33 +1,3 @@
-/**All data models are defined in src/placementEngine.ts. You will use these throughout all three classes.
-
-interface Ad {
-    adId: string;
-    advertiserId: string;
-    timeReceived: number;   // When the ad became available
-    timeout: number;        // How long the ad is available after timeReceived
-    duration: number;       // How many time units the ad runs for
-    baseRevenue: number;    // Revenue before multipliers/decay
-    bannedLocations: string[];  // Locations where this ad cannot be shown
-}
-
-interface Area {
-    areaId: string;
-    location: string;
-    multiplier: number;     // Revenue multiplier for this area
-    totalScreens: number;
-    timeWindow: number;     // Total schedulable time for this area (0 to timeWindow)
-}
-
-interface ScheduledAd {
-    adId: string;
-    areaId: string;
-    startTime: number;      // Inclusive
-    endTime: number;        // Exclusive
-}
-
-type Schedule = Record<string, ScheduledAd[]>;
-// Keys are areaIds. Each ScheduledAd.areaId must match the key it appears under.
-*/
 
 import { Ad, Area, Schedule, ScheduledAd, PlacementEngine } from './placementEngine';
 
