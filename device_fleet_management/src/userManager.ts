@@ -1,36 +1,57 @@
 export interface User {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-    address: string;
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
 }
 
 export class UserManager {
 
-    addUser(user: User): void {
-    }
+  private users: Map<string, User>;
+  
+  constructor() {
+    this.users = new Map<string, User>();
+  }
 
-    removeUser(id: string): void {
-    }
+  addUser(user: User): void {
+    if (!user.id) throw new Error('User must have an id');
+    if (this.getUser(user.id)) throw new Error(`User with id ${user.id} already exists`);
+    this.users.set(user.id, user);
+  }
 
-    getUser(id: string): User | null {
-      return null;
-    }
+  removeUser(id: string): void {
+    if (!this.getUser(id)) throw new Error(`User with id ${id} not found`);
+    this.users.delete(id);
+  }
 
-    getUsersByEmail(email: string): User[] | null {
-      return null;
-    }
+  getUser(id: string): User | null {
+    return this.users.get(id) || null;
+  }
 
-    getUsersByPhone(phone: string): User[] | null {
-      return null;
+  getUsersByEmail(email: string): User[] {
+    const users = Array.from(this.users.values()).filter(user => user.email === email);
+    if(users.length > 0) {
+      return users;
+    } else {
+      return [];
     }
+  }
 
-    getAllUsers(): User[] {
-        return [];
+  getUsersByPhone(phone: string): User[] {
+    const users = Array.from(this.users.values()).filter(user => user.phone === phone);
+    if(users.length > 0) {
+      return users;
+    } else {
+      return [];
     }
+  }
 
-    getUserCount(): number {
-        return 0;
-    }
+  getAllUsers(): User[] {
+    return Array.from(this.users.values());
+  }
+
+  getUserCount(): number {
+    return this.users.size;
+  }
 }
