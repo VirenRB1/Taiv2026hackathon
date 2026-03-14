@@ -31,11 +31,21 @@ export class PlacementEngine {
     }
 
     isAdCompatibleWithArea(ad: Ad, area: Area): boolean {
-        return !ad.bannedLocations.includes(area.location);
+        for(let i = 0; i < ad.bannedLocations.length; i++){
+            if (ad.bannedLocations[i] === area.location) { //checking if this is in the array of bannedLocations
+                return false; 
+            }
+        }
+        return true;
     }
 
     getTotalScheduledTimeForArea(areaSchedule: ScheduledAd[]): number {
-        return areaSchedule.reduce((sum, sAd) => sum + (sAd.endTime - sAd.startTime), 0);
+        let totalDur = 0;
+        for (const item of areaSchedule) {
+            const time = item.endTime - item.startTime;
+            totalDur = totalDur + time;
+        }
+        return totalDur;
     }
 
     doesPlacementFitTimingConstraints(
@@ -43,21 +53,36 @@ export class PlacementEngine {
         area: Area,
         startTime: number
     ): boolean {
-        if (startTime < 0) return false;
 
-        const latestStart = ad.timeReceived + ad.timeout;
-        if (startTime < ad.timeReceived || startTime > latestStart) return false;
+        if (startTime < 0) { //checking if startTime is valid
+            return false;
+        }
 
-        const endTime = startTime + ad.duration;
-        if (endTime > area.timeWindow) return false;
+        //checking window constraints (timeReceived + timeout)
+        const latestPossible = ad.timeReceived + ad.timeout;
+        if (startTime < ad.timeReceived || startTime > latestPossible) {
+            return false;
+        }
+        //time + duration shoulnt exceed the window
+        if (startTime + ad.duration > area.timeWindow) { //
+            return false;
+        }
 
         return true;
     }
 
     isAdAlreadyScheduled(adId: string, schedule: Schedule): boolean {
-        return Object.values(schedule).some((areaAds) => 
-            areaAds.some((sAd) => sAd.adId === adId)
-        );
+        const everyArea = Object.keys(schedule);
+        
+        for (const e of everyArea) {
+            const adsInThisArea = schedule[e];
+            for (const scheduled of adsInThisArea) {
+                if (scheduled.adId === adId) { //if the ad is already scheduled
+                    return true; 
+                }
+            }
+        }
+        return false;
     }
 
     canScheduleAd(
@@ -67,18 +92,23 @@ export class PlacementEngine {
         startTime: number
     ): boolean {
        
-        if (!this.isAdCompatibleWithArea(ad, area)) return false;
+        //CHECKING CONSTRAINTS FIRST
+        // if it si not compatible, then false
+        if (this.isAdCompatibleWithArea(ad, area) === false) return false;
 
+        // if it is already scheduled somewhere already, then false
         if (this.isAdAlreadyScheduled(ad.adId, schedule)) return false;
 
+        // checking if it fits the window
         if (!this.doesPlacementFitTimingConstraints(ad, area, startTime)) return false;
 
-        const targetAreaSchedule = schedule[area.areaId] || [];
-        const newEnd = startTime + ad.duration;
+        //checking if it overlaps with other ads
+        const currentAds = schedule[area.areaId] || [];
+        const myEndTime = startTime + ad.duration;
 
-        for (const existing of targetAreaSchedule) {
-            // Overlap if: StartA < EndB AND StartB < EndA
-            if (startTime < existing.endTime && existing.startTime < newEnd) {
+        for (let j = 0; j < currentAds.length; j++) {
+            const otherAd = currentAds[j];
+            if (startTime < otherAd.endTime && otherAd.startTime < myEndTime) {
                 return false;
             }
         }
@@ -87,24 +117,45 @@ export class PlacementEngine {
     }
 
     isAreaScheduleValid(area: Area, areaSchedule: ScheduledAd[], ads: Ad[]): boolean {
-        if (this.getTotalScheduledTimeForArea(areaSchedule) > area.timeWindow) return false;
 
-         const sorted = [...areaSchedule].sort((a, b) => a.startTime - b.startTime);
+        if (this.getTotalScheduledTimeForArea(areaSchedule) > area.timeWindow) {
+            return false; //ad cant run if its out of the schedule of this area
+        }
 
-        for (let i = 0; i < sorted.length; i++) {
-            const sAd = sorted[i];
-            const adMetadata = ads.find((a) => a.adId === sAd.adId);
+        //sorting with start times
+        const sortedAds = [...areaSchedule].sort((a, b) => {
+            return a.startTime - b.startTime;
+        });
 
-            if (!adMetadata) return false;
+        for (let i = 0; i < sortedAds.length; i++) {
+            const sAd = sortedAds[i];
+            
+            let adData = null;
+            for (const a of ads) {
+                if (a.adId === sAd.adId) {
+                    adData = a;
+                    break;
+                }
+            }
 
-            if (!this.isAdCompatibleWithArea(adMetadata, area)) return false;
+            if (!adData) return false;
 
-            if (sAd.endTime - sAd.startTime !== adMetadata.duration) return false;
+            //checking compatibility
+            if (!this.isAdCompatibleWithArea(adData, area)) return false;
 
+            //checking duration
+            const actualDuration = sAd.endTime - sAd.startTime;
+            if (actualDuration !== adData.duration) return false;
+
+            //checking boundary
             if (sAd.endTime > area.timeWindow) return false;
 
-            if (i < sorted.length - 1) {
-                if (sAd.endTime > sorted[i + 1].startTime) return false;
+            //making sure this ad is not stretching to another
+            if (i < sortedAds.length - 1) {
+                const nextAd = sortedAds[i + 1];
+                if (sAd.endTime > nextAd.startTime) {
+                    return false;
+                }
             }
         }
 
@@ -112,56 +163,78 @@ export class PlacementEngine {
     }
 
     calculateScheduleMetrics(schedule: Schedule, ads: Ad[], areas: Area[], decayRate: number) {
-        const flattened: Array<{ sAd: ScheduledAd; ad: Ad; area: Area; rawRevenue: number }> = [];
-        const areaMap = new Map(areas.map(a => [a.areaId, a]));
-        const adMap = new Map(ads.map(a => [a.adId, a]));
+        
+        //easy lookup
+        const areaLookup: any = {};
+        for (const a of areas) { areaLookup[a.areaId] = a; }
+        
+        const adLookup: any = {};
+        for (const a of ads) { adLookup[a.adId] = a; }
 
-        // valuidtion
-        for (const areaId in schedule) {
-            const area = areaMap.get(areaId);
-            if (!area) continue;
-            for (const sAd of schedule[areaId]) {
-                const ad = adMap.get(sAd.adId);
-                if (!ad) continue;
-                flattened.push({
-                    sAd,
-                    ad,
-                    area,
-                    rawRevenue: ad.baseRevenue * area.multiplier
+        const flatList = [];
+
+        //details from schedule
+        const areaIds = Object.keys(schedule);
+        for (const aId of areaIds) {
+            const areaObj = areaLookup[aId];
+            if (!areaObj) continue;
+
+            const scheduledItems = schedule[aId];
+            for (const sAd of scheduledItems) {
+                const adObj = adLookup[sAd.adId];
+                if (!adObj) continue;
+
+                flatList.push({
+                    sAd: sAd,
+                    ad: adObj,
+                    area: areaObj,
+                    rawRevenue: adObj.baseRevenue * areaObj.multiplier
                 });
             }
         }
 
-        //sorting
-        flattened.sort((a, b) => {
-            if (a.sAd.startTime !== b.sAd.startTime) return a.sAd.startTime - b.sAd.startTime;
-            if (a.rawRevenue !== b.rawRevenue) return a.rawRevenue - b.rawRevenue;
-            return a.ad.adId.localeCompare(b.ad.adId);
+        // Sorting list
+        flatList.sort((item1, item2) => {
+            if (item1.sAd.startTime !== item2.sAd.startTime) {
+                return item1.sAd.startTime - item2.sAd.startTime;
+            }
+            if (item1.rawRevenue !== item2.rawRevenue) {
+                return item1.rawRevenue - item2.rawRevenue;
+            }
+            return item1.ad.adId.localeCompare(item2.ad.adId);
         });
 
-        //decay logic added
-        let totalRevenue = 0;
-        const advertiserCounts = new Map<string, number>();
-        const uniqueAdvertisers = new Set<string>();
-        let totalScheduledDuration = 0;
+        let finalRevenue = 0;
+        let totalTimeUsed = 0;
+        const advertiserSeenCount: any = {};
+        const advertiserSet = new Set<string>();
 
-        for (const item of flattened) {
-            const count = advertiserCounts.get(item.ad.advertiserId) || 0;
-            const multiplier = Math.pow(decayRate, count);
+        for (const item of flatList) {
+            const advId = item.ad.advertiserId;
             
-            totalRevenue += item.rawRevenue * multiplier;
-            totalScheduledDuration += (item.sAd.endTime - item.sAd.startTime);
+            //decay logic
+            let timesSeen = 0;
+            if (advertiserSeenCount[advId]) {
+                timesSeen = advertiserSeenCount[advId];
+            }
             
-            advertiserCounts.set(item.ad.advertiserId, count + 1);
-            uniqueAdvertisers.add(item.ad.advertiserId);
+            const multiplier = Math.pow(decayRate, timesSeen);
+            finalRevenue += item.rawRevenue * multiplier;
+            
+            totalTimeUsed += (item.sAd.endTime - item.sAd.startTime);
+            advertiserSeenCount[advId] = timesSeen + 1;
+            advertiserSet.add(advId);
         }
 
-        const totalPotentialTime = areas.reduce((sum, a) => sum + a.timeWindow, 0);
+        let totalPotentialTime = 0;
+        for (const area of areas) {
+            totalPotentialTime += area.timeWindow;
+        }
         
         return {
-            totalRevenue,
-            unusedTime: totalPotentialTime - totalScheduledDuration,
-            diversity: uniqueAdvertisers.size
+            totalRevenue: finalRevenue,
+            unusedTime: totalPotentialTime - totalTimeUsed,
+            diversity: advertiserSet.size
         };
     }
 
@@ -172,21 +245,26 @@ export class PlacementEngine {
         areas: Area[],
         decayRate: number
     ): number {
-        const metricsA = this.calculateScheduleMetrics(schedA, ads, areas, decayRate);
-        const metricsB = this.calculateScheduleMetrics(schedB, ads, areas, decayRate);
+        const m1 = this.calculateScheduleMetrics(schedA, ads, areas, decayRate);
+        const m2 = this.calculateScheduleMetrics(schedB, ads, areas, decayRate);
 
-        if (Math.abs(metricsA.totalRevenue - metricsB.totalRevenue) > 1e-9) {
-            return metricsA.totalRevenue > metricsB.totalRevenue ? 1 : -1;
+        const diff = m1.totalRevenue - m2.totalRevenue;
+        if (Math.abs(diff) > 0.000000001) {
+            if (m1.totalRevenue > m2.totalRevenue) return 1;
+            else return -1;
         }
 
-        if (metricsA.unusedTime !== metricsB.unusedTime) {
-            return metricsA.unusedTime < metricsB.unusedTime ? 1 : -1;
+        if (m1.unusedTime !== m2.unusedTime) {
+            if (m1.unusedTime < m2.unusedTime) return 1;
+            else return -1;
         }
 
-        if (metricsA.diversity !== metricsB.diversity) {
-            return metricsA.diversity > metricsB.diversity ? 1 : -1;
+        if (m1.diversity !== m2.diversity) {
+            if (m1.diversity > m2.diversity) return 1;
+            else return -1;
         }
 
         return 0;
     }
+    
 }
